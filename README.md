@@ -1,6 +1,5 @@
-# Football League Spreadsheet Automation
-
-This project provides a set of Google Apps Script functions (`macros.gs`) designed to automate the management of a football league spreadsheet. It includes features such as initializing player regions, updating points and lives based on match results, and displaying rankings. Additionally, it fetches football match results using football-api.
+# Survivor Liga MX
+This project provides a set of Google Apps Script functions (`macros.gs`) designed to automate the management of a Liga MX spreadsheet. It includes features such as initializing player regions, updating points and lives based on match results, and displaying rankings. Additionally, it fetches football match results using football-api.
 
 ## Features
 
