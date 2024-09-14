@@ -33,7 +33,7 @@ function initializePointsAndLives() {
   }
 }
 
-function updatePlayerRegionBasedOnLives() {
+function updatePlayerRegionBasedOnLives(playersWhoPickedCurrentRound) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var playersStartRange = sheet.getRange("players_start");
   var teamsStartRow = sheet.getRange("teams_start").getRow();
@@ -65,11 +65,14 @@ function updatePlayerRegionBasedOnLives() {
       eliminados.push(currentPlayer)
     }
     else {
-      playerCell.setBackground('white');
-      playerCell.setFontColor('black');
-      ranking[currentPlayer] = {
-        "vidas" : currentLives,
-        "puntos" : currentPoints
+      // check if the player picked a team for the current round and if not, leave the background as is
+      if (playersWhoPickedCurrentRound.hasOwnProperty(currentPlayer)) {
+        playerCell.setBackground('white');
+        playerCell.setFontColor('black');
+        ranking[currentPlayer] = {
+          "vidas" : currentLives,
+          "puntos" : currentPoints
+        }
       }
     }
   }
@@ -159,9 +162,53 @@ function update() {
 
   var response = UrlFetchApp.fetch(url, options);
   var data = JSON.parse(response.getContentText());
-  var jornadas = {};
+
+  // Variables to store fixtures
+  var upcomingFixtures = [];
+  var pastFixtures = [];
 
   data.response.forEach(function(fixture) {
+    var matchStatus = fixture.fixture.status ? fixture.fixture.status.short : null;
+
+    if (matchStatus === 'NS' || matchStatus === 'TBD') {
+      upcomingFixtures.push(fixture);
+    } else if (matchStatus === 'FT' || matchStatus === 'AET' || matchStatus === 'PEN') {
+      pastFixtures.push(fixture);
+    }
+  });
+
+  // Sort fixtures by date
+  upcomingFixtures.sort(function(a, b) {
+    return new Date(a.fixture.date) - new Date(b.fixture.date);
+  });
+
+  pastFixtures.sort(function(a, b) {
+    return new Date(b.fixture.date) - new Date(a.fixture.date);
+  });
+
+  // Determine the current round
+  var currentRound = '';
+  if (upcomingFixtures.length > 0) {
+    // Use the round of the next upcoming fixture
+    currentRound = upcomingFixtures[0].league.round;
+  } else if (pastFixtures.length > 0) {
+    // All fixtures have been played; use the last completed round
+    currentRound = pastFixtures[0].league.round;
+  } else {
+    // Default to the first round if no fixtures are found
+    currentRound = 'Apertura - 1';
+  }
+
+  Logger.log("Current Round: " + currentRound);
+  // Set the current round in the spreadsheet
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  sheet.getRange("current_round").setValue(currentRound);
+
+  // Create the jornadas object
+  var jornadas = {};
+
+  // Process past fixtures to build the jornadas object
+  pastFixtures.forEach(function(fixture) {
     var jornada = "J" + fixture.league.round.split(" ").pop();
     var matchStatus = fixture.fixture.status ? fixture.fixture.status.short : null;
     var homeTeam = fixture.teams.home.name;
@@ -177,7 +224,7 @@ function update() {
       };
     }
 
-    if (matchStatus === "FT") { // Full Time
+    if (matchStatus === "FT" || matchStatus === "AET" || matchStatus === "PEN") {
       if (homeScore > awayScore) {
         jornadas[jornada].TeamsWin.push(homeTeam);
         jornadas[jornada].TeamsLost.push(awayTeam);
@@ -195,14 +242,7 @@ function update() {
     "Jornadas": jornadas
   };
 
-
-  // Logger.log(JSON.stringify(result, null, 2));
-
-  // Now lets iterate over the columns from named range "players_start" until the last column with data.
-  // The teams will be at named column "teams_column" and the start row is "teams_start" and the end row is "teams_end",
-  // if we find a value on a player cell, we will check the jornadas structure and see if the team won, tied or lost.
-  // If the team won we will update cell at named row "puntos_row" and increase the value by 3, if it tied we will increase by 1,
-  // if it lost we will not do anything. If the team lost we will decrease the row at "vidas_row" by 1.
+  // Now proceed to process the player picks
 
   // Initialization
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
@@ -212,55 +252,91 @@ function update() {
   var teamsEndRow = sheet.getRange("teams_end").getRow();
   var puntosRow = sheet.getRange("puntos_row").getRow();
   var vidasRow = sheet.getRange("vidas_row").getRow();
+  var players_row = sheet.getRange("players_row").getRow();
 
   var lastColumn = sheet.getLastColumn();
 
-  initializePlayerRegionBackground()
-  initializePointsAndLives()
+  initializePlayerRegionBackground();
+  initializePointsAndLives();
+
+  var allPlayers = [];
+  var playersWhoPickedCurrentRound = {};
+
+  // Collect all players
+  for (var col = playersStartRange.getColumn(); col <= lastColumn; col++) {
+    var playerCell = sheet.getRange(players_row, col);
+    var currentPlayer = playerCell.getValue();
+    allPlayers.push({
+      name: currentPlayer,
+      column: col
+    });
+  }
 
   // Iterate over the columns from players_start to the last column with data
   for (var col = playersStartRange.getColumn(); col <= lastColumn; col++) {
+    var playerCell = sheet.getRange(players_row, col);
+    var currentPlayer = playerCell.getValue();
+
     for (var row = teamsStartRow; row <= teamsEndRow; row++) {
       var cell = sheet.getRange(row, col);
       var cellValue = cell.getValue();
       var teamName = sheet.getRange(row, teamsColumnRange.getColumn()).getValue();
 
       if (cellValue) {
-        Logger.log("Cell value " + cellValue)
-        var jornada = cellValue; // Assuming the cell value corresponds to the jornada
-        var resultObj = result["Jornadas"][jornada]//jornadas[jornada];
-        //Logger.log(result["Jornadas"])
+        var jornada = cellValue; // Assuming the cell value corresponds to the jornada (e.g., 'J13')
+
+        // Check if the pick is for the current round
+        var pickRound = 'Apertura - ' + jornada.substring(1);
+        if (pickRound === currentRound) {
+          playersWhoPickedCurrentRound[currentPlayer] = true;
+        }
+
+        var resultObj = result["Jornadas"][jornada];
+
         if (resultObj) {
-          Logger.log("Results are present")
           if (resultObj.TeamsWin.includes(teamName)) {
             // Increase points by 3
-            Logger.log("Increasing 3 points for team : " + teamName)
             var puntosCell = sheet.getRange(puntosRow, col);
             var currentPoints = puntosCell.getValue() || 0;
             puntosCell.setValue(currentPoints + 3);
             cell.setBackground('green').setFontColor('white');
           } else if (resultObj.TeamsTied.includes(teamName)) {
             // Increase points by 1
-            Logger.log("Increasing 1 points for team : " + teamName)
             var puntosCell = sheet.getRange(puntosRow, col);
             var currentPoints = puntosCell.getValue() || 0;
             puntosCell.setValue(currentPoints + 1);
             cell.setBackground('yellow').setFontColor('black');
           } else if (resultObj.TeamsLost.includes(teamName)) {
             // Decrease lives by 1
-            Logger.log("Decrease 1 live for team : " + teamName)
             var vidasCell = sheet.getRange(vidasRow, col);
-            var currentLives = vidasCell.getValue() || 3; // Default lives is 3
+            var currentLives = vidasCell.getValue() || 3;
             vidasCell.setValue(currentLives - 1);
             cell.setBackground('red').setFontColor('white');
-          } else{
+          } else {
             cell.setBackground('white').setFontColor('black');
           }
-        } else {
-          //Logger.log("Results don't exist")
         }
       }
     }
   }
-  updatePlayerRegionBasedOnLives()
+
+  // Deduct a life for players who didn't make a pick for the current round
+  allPlayers.forEach(function(player) {
+    var currentPlayer = player.name;
+    var col = player.column;
+
+    if (!playersWhoPickedCurrentRound.hasOwnProperty(currentPlayer)) {
+      // Player did not make a pick for the current round
+      Logger.log("Player " + currentPlayer + " did not make a pick for " + currentRound);
+      // Decrease lives by 1
+      var vidasCell = sheet.getRange(vidasRow, col);
+      var currentLives = vidasCell.getValue() || 3;
+      vidasCell.setValue(currentLives - 1);
+      // Optionally, update the player's cell to indicate a missed pick
+      var playerCell = sheet.getRange(players_row, col);
+      playerCell.setBackground('orange').setFontColor('black');
+    }
+  });
+
+  updatePlayerRegionBasedOnLives(playersWhoPickedCurrentRound);
 }
