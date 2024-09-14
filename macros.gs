@@ -15,6 +15,14 @@ function initializePlayerRegionBackground() {
   }
 }
 
+function initializeHeaderRegionBackground() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var headerRange = sheet.getRange("players_row");
+
+  // Set the background color to white for the header region
+  headerRange.setBackground('white').setFontColor('black');
+}
+
 function initializePointsAndLives() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var playersStartRange = sheet.getRange("players_start");
@@ -69,11 +77,12 @@ function updatePlayerRegionBasedOnLives(playersWhoPickedCurrentRound) {
       if (playersWhoPickedCurrentRound.hasOwnProperty(currentPlayer)) {
         playerCell.setBackground('white');
         playerCell.setFontColor('black');
-        ranking[currentPlayer] = {
-          "vidas" : currentLives,
-          "puntos" : currentPoints
-        }
       }
+      ranking[currentPlayer] = {
+        "vidas" : currentLives,
+        "puntos" : currentPoints
+      }
+
     }
   }
   console.log("Rankings")
@@ -257,6 +266,7 @@ function update() {
   var lastColumn = sheet.getLastColumn();
 
   initializePlayerRegionBackground();
+  initializeHeaderRegionBackground();
   initializePointsAndLives();
 
   var allPlayers = [];
