@@ -23,12 +23,15 @@ function initializeHeaderRegionBackground() {
   headerRange.setBackground('white').setFontColor('black');
 }
 
-function initializePointsAndLives() {
+function initializePointsAndLives(currentRound) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var playersStartRange = sheet.getRange("players_start");
   var puntosRow = sheet.getRange("puntos_row").getRow();
   var vidasRow = sheet.getRange("vidas_row").getRow();
-
+  var playersRow = sheet.getRange("players_row").getRow();
+  var teamsStartRow = sheet.getRange("teams_start").getRow();
+  var teamsEndRow = sheet.getRange("teams_end").getRow();
+  var teamsColumn = sheet.getRange("teams_column").getColumn();
   var lastColumn = sheet.getLastColumn();
 
   // Initialize points and lives for each player
@@ -39,6 +42,61 @@ function initializePointsAndLives() {
     // Initialize lives to 3
     sheet.getRange(vidasRow, col).setValue(3);
   }
+
+  // Get the total number of the current round
+  var totalRounds = parseInt(currentRound.split(" - ").pop());
+
+  // Generate an array of past rounds (excluding the current round)
+  var pastRounds = [];
+  for (var i = 1; i < totalRounds; i++) {
+    pastRounds.push('Apertura - ' + i);
+  }
+
+  // Collect all players
+  var players = [];
+  for (var col = playersStartRange.getColumn(); col <= lastColumn; col++) {
+    var playerName = sheet.getRange(playersRow, col).getValue();
+    players.push({ name: playerName, column: col });
+  }
+
+  // Collect picks for each player
+  var playerPicks = {};
+  players.forEach(function(player) {
+    playerPicks[player.name] = {};
+  });
+
+  // Go through the picks grid and populate playerPicks
+  for (var row = teamsStartRow; row <= teamsEndRow; row++) {
+    for (var col = playersStartRange.getColumn(); col <= lastColumn; col++) {
+      var playerName = sheet.getRange(playersRow, col).getValue();
+      var cellValue = sheet.getRange(row, col).getValue();
+
+      if (cellValue) {
+        var jornada = cellValue; // e.g., 'J5'
+        var pickRoundNumber = parseInt(jornada.substring(1));
+        var pickRound = 'Apertura - ' + pickRoundNumber;
+
+        // Record that the player made a pick for this round
+        playerPicks[playerName][pickRound] = true;
+      }
+    }
+  }
+
+  // For each player, check if they have picks for pastRounds
+  players.forEach(function(player) {
+    var vidasCell = sheet.getRange(vidasRow, player.column);
+    var currentLives = 3; // Since we just set it to 3
+
+    pastRounds.forEach(function(round) {
+      if (!playerPicks[player.name].hasOwnProperty(round)) {
+        // Player did not make a pick for this past round, deduct a life
+        currentLives--;
+      }
+    });
+
+    // Update the lives in the sheet
+    vidasCell.setValue(currentLives);
+  });
 }
 
 function updatePlayerRegionBasedOnLives(playersWhoPickedCurrentRound) {
@@ -267,7 +325,7 @@ function update() {
 
   initializePlayerRegionBackground();
   initializeHeaderRegionBackground();
-  initializePointsAndLives();
+  initializePointsAndLives(currentRound);
 
   var allPlayers = [];
   var playersWhoPickedCurrentRound = {};
