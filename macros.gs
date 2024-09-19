@@ -220,7 +220,7 @@ function update() {
   var scriptProperties = PropertiesService.getScriptProperties();
   var apiKey = scriptProperties.getProperty('footballApiKey');
   var options = {
-    "method" : "GET",
+    "method": "GET",
     "headers": {
       "x-rapidapi-host": "v3.football.api-sports.io",
       "x-rapidapi-key": apiKey
@@ -230,40 +230,95 @@ function update() {
   var response = UrlFetchApp.fetch(url, options);
   var data = JSON.parse(response.getContentText());
 
-  // Variables to store fixtures
-  var upcomingFixtures = [];
-  var pastFixtures = [];
+  var rounds = {};
 
+  // Build the rounds object with fixtures and date ranges
   data.response.forEach(function(fixture) {
-    var matchStatus = fixture.fixture.status ? fixture.fixture.status.short : null;
+    var roundName = fixture.league.round;
+    if (!rounds[roundName]) {
+      rounds[roundName] = {
+        fixtures: [],
+        earliestDate: null,
+        latestDate: null
+      };
+    }
+    rounds[roundName].fixtures.push(fixture);
 
-    if (matchStatus === 'NS' || matchStatus === 'TBD') {
-      upcomingFixtures.push(fixture);
-    } else if (matchStatus === 'FT' || matchStatus === 'AET' || matchStatus === 'PEN') {
-      pastFixtures.push(fixture);
+    var fixtureDate = new Date(fixture.fixture.date);
+
+    if (!rounds[roundName].earliestDate || fixtureDate < rounds[roundName].earliestDate) {
+      //rounds[roundName].earliestDate = fixtureDate;
+      rounds[roundName].earliestDate = new Date(fixtureDate.getFullYear(), fixtureDate.getMonth(), fixtureDate.getDate());
+
+    }
+    if (!rounds[roundName].latestDate || fixtureDate > rounds[roundName].latestDate) {
+      //rounds[roundName].latestDate = fixtureDate;
+      rounds[roundName].latestDate = new Date(fixtureDate.getFullYear(), fixtureDate.getMonth(), fixtureDate.getDate(), 23, 59, 59);
+
     }
   });
 
-  // Sort fixtures by date
-  upcomingFixtures.sort(function(a, b) {
-    return new Date(a.fixture.date) - new Date(b.fixture.date);
+  // Convert rounds object to an array and sort by round number
+  var roundsArray = [];
+  for (var roundName in rounds) {
+    if (rounds.hasOwnProperty(roundName)) {
+      var roundNumberStr = roundName.split(" - ").pop();
+      var roundNumber = parseInt(roundNumberStr);
+      roundsArray.push({
+        roundName: roundName,
+        roundNumber: roundNumber,
+        earliestDate: rounds[roundName].earliestDate,
+        latestDate: rounds[roundName].latestDate,
+        fixtures: rounds[roundName].fixtures
+      });
+    }
+  }
+
+  // Sort the rounds by their number
+  roundsArray.sort(function(a, b) {
+    return a.roundNumber - b.roundNumber;
   });
 
-  pastFixtures.sort(function(a, b) {
-    return new Date(b.fixture.date) - new Date(a.fixture.date);
-  });
-
-  // Determine the current round
+  // Determine the current round based on the current date
+  var currentDate = new Date();
+  // currentDate.setHours(currentDate.getHours() - 6); // Convert to Mexico City time
+  
+  // For testing, let's set the current date to a specific date of September 20, 2024
+  // currentDate = new Date("2024-09-20T12:00:00-05:00");
+  
   var currentRound = '';
-  if (upcomingFixtures.length > 0) {
-    // Use the round of the next upcoming fixture
-    currentRound = upcomingFixtures[0].league.round;
-  } else if (pastFixtures.length > 0) {
-    // All fixtures have been played; use the last completed round
-    currentRound = pastFixtures[0].league.round;
-  } else {
-    // Default to the first round if no fixtures are found
-    currentRound = 'Apertura - 1';
+  var currentRoundFound = false;
+  console.log("Current date : " + currentDate);
+  for (var i = 0; i < roundsArray.length; i++) {
+    var round = roundsArray[i];
+
+    if (currentDate >= round.earliestDate && currentDate <= round.latestDate) {
+      // Current date falls within this round's date range
+      currentRound = round.roundName;
+      currentRoundFound = true;
+      break;
+    } else if (currentDate < round.earliestDate) {
+      // Current date is before this round's fixtures
+      if (i > 0) {
+        console.log("Using past round")
+        // Use the previous round
+        currentRound = roundsArray[i - 1].roundName;
+      } else {
+        // This is the first round
+        console.log("Third condition")
+        currentRound = round.roundName;
+      }
+      currentRoundFound = true;
+      console.log("Round earliest : " + round.earliestDate)
+      console.log("Round latest : " + round.latestDate)
+
+      break;
+    }
+  }
+
+  if (!currentRoundFound) {
+    // Current date is after all rounds; use the last round
+    currentRound = roundsArray[roundsArray.length - 1].roundName;
   }
 
   Logger.log("Current Round: " + currentRound);
@@ -271,38 +326,38 @@ function update() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   sheet.getRange("current_round").setValue(currentRound);
 
-  // Create the jornadas object
+  // Build the jornadas object
   var jornadas = {};
 
-  // Process past fixtures to build the jornadas object
-  pastFixtures.forEach(function(fixture) {
-    var jornada = "J" + fixture.league.round.split(" ").pop();
-    var matchStatus = fixture.fixture.status ? fixture.fixture.status.short : null;
-    var homeTeam = fixture.teams.home.name;
-    var awayTeam = fixture.teams.away.name;
-    var homeScore = fixture.goals.home;
-    var awayScore = fixture.goals.away;
+  // Process rounds to build the jornadas object
+  roundsArray.forEach(function(round) {
+    var jornada = "J" + round.roundNumber;
+    jornadas[jornada] = {
+      "TeamsWin": [],
+      "TeamsLost": [],
+      "TeamsTied": []
+    };
 
-    if (!jornadas[jornada]) {
-      jornadas[jornada] = {
-        "TeamsWin": [],
-        "TeamsLost": [],
-        "TeamsTied": []
-      };
-    }
+    round.fixtures.forEach(function(fixture) {
+      var matchStatus = fixture.fixture.status ? fixture.fixture.status.short : null;
+      var homeTeam = fixture.teams.home.name;
+      var awayTeam = fixture.teams.away.name;
+      var homeScore = fixture.goals.home;
+      var awayScore = fixture.goals.away;
 
-    if (matchStatus === "FT" || matchStatus === "AET" || matchStatus === "PEN") {
-      if (homeScore > awayScore) {
-        jornadas[jornada].TeamsWin.push(homeTeam);
-        jornadas[jornada].TeamsLost.push(awayTeam);
-      } else if (homeScore < awayScore) {
-        jornadas[jornada].TeamsWin.push(awayTeam);
-        jornadas[jornada].TeamsLost.push(homeTeam);
-      } else {
-        jornadas[jornada].TeamsTied.push(homeTeam);
-        jornadas[jornada].TeamsTied.push(awayTeam);
+      if (matchStatus === "FT" || matchStatus === "AET" || matchStatus === "PEN") {
+        if (homeScore > awayScore) {
+          jornadas[jornada].TeamsWin.push(homeTeam);
+          jornadas[jornada].TeamsLost.push(awayTeam);
+        } else if (homeScore < awayScore) {
+          jornadas[jornada].TeamsWin.push(awayTeam);
+          jornadas[jornada].TeamsLost.push(homeTeam);
+        } else {
+          jornadas[jornada].TeamsTied.push(homeTeam);
+          jornadas[jornada].TeamsTied.push(awayTeam);
+        }
       }
-    }
+    });
   });
 
   var result = {
@@ -312,7 +367,6 @@ function update() {
   // Now proceed to process the player picks
 
   // Initialization
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var playersStartRange = sheet.getRange("players_start");
   var teamsColumnRange = sheet.getRange("teams_column");
   var teamsStartRow = sheet.getRange("teams_start").getRow();
