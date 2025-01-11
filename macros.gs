@@ -10,7 +10,7 @@ function initializePlayerRegionBackground() {
   // Set the background color to white for the entire player region
   for (var col = playersStartRange.getColumn(); col <= lastColumn; col++) {
     for (var row = teamsStartRow; row <= teamsEndRow; row++) {
-      sheet.getRange(row, col).setBackground('white').setFontColor('black');
+      sheet.getRange(row, col).setBackground('white');
     }
   }
 }
@@ -49,7 +49,7 @@ function initializePointsAndLives(currentRound) {
   // Generate an array of past rounds (excluding the current round)
   var pastRounds = [];
   for (var i = 1; i < totalRounds; i++) {
-    pastRounds.push('Apertura - ' + i);
+    pastRounds.push('Clausura - ' + i);
   }
 
   // Collect all players
@@ -74,7 +74,7 @@ function initializePointsAndLives(currentRound) {
       if (cellValue) {
         var jornada = cellValue; // e.g., 'J5'
         var pickRoundNumber = parseInt(jornada.substring(1));
-        var pickRound = 'Apertura - ' + pickRoundNumber;
+        var pickRound = 'Clausura - ' + pickRoundNumber;
 
         // Record that the player made a pick for this round
         playerPicks[playerName][pickRound] = true;
@@ -228,6 +228,7 @@ function update() {
   };
 
   var response = UrlFetchApp.fetch(url, options);
+  // console.log(response.getContentText())
   var data = JSON.parse(response.getContentText());
 
   var rounds = {};
@@ -258,10 +259,17 @@ function update() {
     }
   });
 
+  // console.log(JSON.stringify(rounds))
+
   // Convert rounds object to an array and sort by round number
   var roundsArray = [];
   for (var roundName in rounds) {
     if (rounds.hasOwnProperty(roundName)) {
+      if (!roundName.startsWith(currentTournament)){
+        continue
+      }
+      console.log(roundName)
+
       var roundNumberStr = roundName.split(" - ").pop();
       var roundNumber = parseInt(roundNumberStr);
       roundsArray.push({
@@ -287,6 +295,7 @@ function update() {
   // currentDate = new Date("2024-09-20T12:00:00-05:00");
   
   var currentRound = '';
+  var currentTournament= '';
   var currentRoundFound = false;
   console.log("Current date : " + currentDate);
   for (var i = 0; i < roundsArray.length; i++) {
@@ -319,6 +328,13 @@ function update() {
   if (!currentRoundFound) {
     // Current date is after all rounds; use the last round
     currentRound = roundsArray[roundsArray.length - 1].roundName;
+  }
+  currentRound = "Clausura - 1"
+  if (currentRound.length > 0){
+    currentTournament = currentRound.split(" - ")[0]
+  } else {
+    Logger.log("Current tournament could not be determined")
+    return;
   }
 
   Logger.log("Current Round: " + currentRound);
@@ -360,6 +376,14 @@ function update() {
     });
   });
 
+  //console.log(JSON.stringify(roundsArray))
+
+  // for( var i =0; i < roundsArray.length; i++) {
+  //   if (roundsArray[i].roundName.startsWith("Clausura")){
+  //     console.log(JSON.stringify(roundsArray[i]))
+  //   }
+  // }
+
   var result = {
     "Jornadas": jornadas
   };
@@ -394,6 +418,7 @@ function update() {
     });
   }
 
+  // console.log(JSON.stringify(result))
   // Iterate over the columns from players_start to the last column with data
   for (var col = playersStartRange.getColumn(); col <= lastColumn; col++) {
     var playerCell = sheet.getRange(players_row, col);
@@ -408,7 +433,7 @@ function update() {
         var jornada = cellValue; // Assuming the cell value corresponds to the jornada (e.g., 'J13')
 
         // Check if the pick is for the current round
-        var pickRound = 'Apertura - ' + jornada.substring(1);
+        var pickRound = 'Clausura - ' + jornada.substring(1);
         if (pickRound === currentRound) {
           playersWhoPickedCurrentRound[currentPlayer] = true;
         }
@@ -431,8 +456,11 @@ function update() {
           } else if (resultObj.TeamsLost.includes(teamName)) {
             // Decrease lives by 1
             var vidasCell = sheet.getRange(vidasRow, col);
-            var currentLives = vidasCell.getValue() || 3;
+            var currentLives = vidasCell.getValue();
             vidasCell.setValue(currentLives - 1);
+            if (vidasCell.getValue() < 0){
+              vidasCell.setValue(0)
+            }
             cell.setBackground('red').setFontColor('white');
           } else {
             cell.setBackground('white').setFontColor('black');
@@ -441,24 +469,25 @@ function update() {
       }
     }
   }
-
+  
   // Deduct a life for players who didn't make a pick for the current round
-  allPlayers.forEach(function(player) {
-    var currentPlayer = player.name;
-    var col = player.column;
+  // This code doesn't work well.
+  // allPlayers.forEach(function(player) {
+  //   var currentPlayer = player.name;
+  //   var col = player.column;
 
-    if (!playersWhoPickedCurrentRound.hasOwnProperty(currentPlayer)) {
-      // Player did not make a pick for the current round
-      Logger.log("Player " + currentPlayer + " did not make a pick for " + currentRound);
-      // Decrease lives by 1
-      var vidasCell = sheet.getRange(vidasRow, col);
-      var currentLives = vidasCell.getValue() || 3;
-      vidasCell.setValue(currentLives - 1);
-      // Optionally, update the player's cell to indicate a missed pick
-      var playerCell = sheet.getRange(players_row, col);
-      playerCell.setBackground('orange').setFontColor('black');
-    }
-  });
+  //   if (!playersWhoPickedCurrentRound.hasOwnProperty(currentPlayer)) {
+  //     // Player did not make a pick for the current round
+  //     Logger.log("Player " + currentPlayer + " did not make a pick for " + currentRound);
+  //     // Decrease lives by 1
+  //     var vidasCell = sheet.getRange(vidasRow, col);
+  //     var currentLives = vidasCell.getValue() || 3;
+  //     vidasCell.setValue(currentLives - 1);
+  //     // Optionally, update the player's cell to indicate a missed pick
+  //     var playerCell = sheet.getRange(players_row, col);
+  //     playerCell.setBackground('orange').setFontColor('black');
+  //   }
+  // });
 
   updatePlayerRegionBasedOnLives(playersWhoPickedCurrentRound);
 }
